@@ -3,7 +3,7 @@
 //! cash bills. Each bill has an amount and an owner, and can be spent in its entirety.
 //! When a state transition spends bills, new bills are created in lesser or equal amount.
 
-use super::{StateMachine, User};
+use super::{p6_open_ended::Transition, StateMachine, User};
 use std::collections::HashSet;
 
 /// This state machine models a multi-user currency system. It tracks a set of bills in
@@ -54,6 +54,19 @@ impl State {
         self.bills.insert(elem);
         self.increment_serial()
     }
+
+    fn remove_bill(&mut self, elem: &Bill) {
+        self.bills.remove(elem);
+    }
+
+    // fn transfer_bill(&mut self, bill: &Bill, new_owner: User) {
+    //     self.bills.remove(bill);
+    //     self.bills.insert(Bill {
+    //         owner: new_owner,
+    //         amount: bill.amount,
+    //         serial: bill.serial,
+    //     });
+    // }
 }
 
 impl FromIterator<Bill> for State {
@@ -94,7 +107,72 @@ impl StateMachine for DigitalCashSystem {
     type Transition = CashTransaction;
 
     fn next_state(starting_state: &Self::State, t: &Self::Transition) -> Self::State {
-        todo!("Exercise 1")
+        let mut new_state = starting_state.clone();
+        match t {
+            CashTransaction::Mint { minter, amount } => new_state.add_bill(Bill {
+                owner: *minter,
+                amount: *amount,
+                serial: new_state.next_serial(),
+            }),
+            CashTransaction::Transfer { spends, receives } => {
+                // If any of the bills being spent have an amount of 0, then the transaction
+                // is invalid.
+                if (*spends).iter().any(|bill| bill.amount == 0)
+                    || (*receives).iter().any(|bill| bill.amount == 0)
+                {
+                    return new_state;
+                }
+
+                // If any of the bills being received have a serial number that has already
+                // been seen, then the transaction is invalid.
+                if (*receives)
+                    .iter()
+                    .any(|bill| bill.serial < new_state.next_serial())
+                {
+                    return new_state;
+                }
+
+                // If any of the bills being spent is not in the current state, then the
+                // transaction is invalid.
+                if (*spends)
+                    .iter()
+                    .any(|bill| !starting_state.bills.contains(bill))
+                {
+                    return new_state;
+                }
+
+                let amount_spent = (*spends)
+                    .iter()
+                    .try_fold(0u64, |acc, bill| acc.checked_add(bill.amount));
+                if amount_spent.is_none() {
+                    return new_state;
+                }
+                let amount_spent = amount_spent.unwrap();
+
+                let amount_received = (*receives)
+                    .iter()
+                    .try_fold(0u64, |acc, bill| acc.checked_add(bill.amount));
+                if amount_received.is_none() {
+                    return new_state;
+                }
+                let amount_received = amount_received.unwrap();
+
+                println!(
+                    "amount spent: {}, amount received: {}",
+                    amount_spent, amount_received
+                );
+
+                if amount_spent >= amount_received {
+                    (*spends)
+                        .iter()
+                        .for_each(|bill| new_state.remove_bill(bill));
+                    (*receives)
+                        .iter()
+                        .for_each(|bill| new_state.add_bill(bill.clone()));
+                }
+            }
+        }
+        new_state
     }
 }
 

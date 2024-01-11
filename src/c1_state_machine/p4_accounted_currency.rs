@@ -45,7 +45,55 @@ impl StateMachine for AccountedCurrency {
     type Transition = AccountingTransaction;
 
     fn next_state(starting_state: &Balances, t: &AccountingTransaction) -> Balances {
-        todo!("Exercise 1")
+        let mut next_state = starting_state.clone();
+
+        match t {
+            AccountingTransaction::Mint { minter, amount } => {
+                if *amount != 0 {
+                    next_state
+                        .entry(*minter)
+                        .and_modify(|balance| *balance += amount)
+                        .or_insert(*amount);
+                }
+            }
+            AccountingTransaction::Burn { burner, amount } => match starting_state.get(burner) {
+                Some(balance) => {
+                    if *balance > *amount {
+                        next_state
+                            .entry(*burner)
+                            .and_modify(|balance| *balance -= amount);
+                    } else {
+                        next_state.remove(burner);
+                    }
+                }
+                None => {}
+            },
+
+            AccountingTransaction::Transfer {
+                sender,
+                receiver,
+                amount,
+            } => match (starting_state.get(sender), starting_state.get(receiver)) {
+                (Some(sender_balance), _) => match sender_balance >= amount {
+                    true => {
+                        if sender_balance.checked_sub(*amount) != Some(0) {
+                            next_state
+                                .entry(*sender)
+                                .and_modify(|balance| *balance -= amount);
+                        } else {
+                            next_state.remove(sender);
+                        }
+                        next_state
+                            .entry(*receiver)
+                            .and_modify(|balance| *balance += amount)
+                            .or_insert(*amount);
+                    }
+                    false => {}
+                },
+                _ => {}
+            },
+        }
+        next_state
     }
 }
 

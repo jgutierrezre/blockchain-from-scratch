@@ -14,6 +14,16 @@ pub enum Key {
     Enter,
 }
 
+fn key_to_digit(key: &Key) -> Option<u64> {
+    match key {
+        Key::One => Some(1),
+        Key::Two => Some(2),
+        Key::Three => Some(3),
+        Key::Four => Some(4),
+        Key::Enter => panic!(),
+    }
+}
+
 /// Something you can do to the ATM
 pub enum Action {
     /// Swipe your card at the ATM. The attached value is the hash of the pin
@@ -58,7 +68,75 @@ impl StateMachine for Atm {
     type Transition = Action;
 
     fn next_state(starting_state: &Self::State, t: &Self::Transition) -> Self::State {
-        todo!("Exercise 4")
+        let mut next_state = starting_state.clone();
+
+        match starting_state.expected_pin_hash {
+            Auth::Waiting => match t {
+                Action::SwipeCard(pin) => {
+                    next_state.expected_pin_hash = Auth::Authenticating(*pin);
+                    next_state
+                }
+                Action::PressKey(key) => match key {
+                    Key::One => next_state,
+                    Key::Two => next_state,
+                    Key::Three => next_state,
+                    Key::Four => next_state,
+                    Key::Enter => next_state,
+                },
+            },
+            Auth::Authenticating(x) => match t {
+                Action::SwipeCard(_) => next_state,
+                Action::PressKey(key) => match key {
+                    Key::Enter => {
+                        match x == crate::hash(&starting_state.keystroke_register) {
+                            true => {
+                                next_state.expected_pin_hash = Auth::Authenticated;
+                                next_state.keystroke_register = Vec::new();
+                                next_state
+                            }
+                            false => {
+                                next_state.expected_pin_hash = Auth::Waiting;
+                                next_state.keystroke_register = Vec::new();
+                                next_state
+                            }
+                        }
+                    }
+                    _ => {
+                        next_state.keystroke_register.push(key.clone());
+                        next_state
+                    }
+                },
+            },
+            Auth::Authenticated => match t {
+                Action::SwipeCard(_) => next_state,
+                Action::PressKey(key) => match key {
+                    Key::Enter => {
+                        let amount = next_state
+                            .keystroke_register
+                            .iter()
+                            .filter_map(key_to_digit)
+                            .fold(0u64, |acc, digit| acc * 10 + digit);
+                        match starting_state.cash_inside >= amount {
+                            true => {
+                                next_state.cash_inside = starting_state.cash_inside - amount;
+                                next_state.expected_pin_hash = Auth::Waiting;
+                                next_state.keystroke_register = Vec::new();
+                                next_state
+                            }
+                            false => {
+                                next_state.expected_pin_hash = Auth::Waiting;
+                                next_state.keystroke_register = Vec::new();
+                                next_state
+                            }
+                        }
+                    }
+                    _ => {
+                        next_state.keystroke_register.push(key.clone());
+                        next_state
+                    }
+                },
+            },
+        }
     }
 }
 
